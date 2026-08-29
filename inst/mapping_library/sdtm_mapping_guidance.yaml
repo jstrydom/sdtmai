@@ -1,0 +1,202 @@
+domains:
+  DM:
+    USUBJID: >
+      Construct USUBJID consistently from the approved study and subject
+      identifiers. Use a "-" delimiter.
+    RFSTDTC: >
+      Derive the subject reference start from the earliest supported
+      participant-level reference event, preserving collected date/time
+      precision and requiring study-context support for the selected event.
+    RFENDTC: >
+      Derive the subject reference end from the latest supported
+      participant-level reference event. Apply a fallback only when it is
+      supported by the current source structure and reviewed study convention.
+    RACE: >
+      Derive RACE from the available race indicator variables and supporting
+      other-race text where applicable. 
+      Interpret a supplied checkbox raw value of 1 as selected and 0 as not selected. 
+      Map one selected category to the corresponding SDTM race term: 
+      e.g., AMALK_RAW to AMERICAN INDIAN OR ALASKA NATIVE, ASIAN_RAW to ASIAN, etc. (depending on the specific variable).
+      OTHER_RAW to OTHER. 
+      If more than one race category is selected, assign MULTIPLE. 
+      Leave null if no defensible selected category is present.
+    ARMCD: >
+      Derive planned arm code only from a defensible participant-level cohort
+      or assignment source reconciled with the current reviewed treatment-arm
+      definitions.
+    ARM: >
+      Derive planned arm description from the same validated participant-level
+      assignment used for ARMCD and the current reviewed treatment-arm
+      definitions.
+    ACTARMCD: >
+      Derive actual arm code from the complete administered regimen, including
+      treatment, dose, unit, route, completion status, and split records where
+      applicable. Do not infer a regimen when the exposure structure is
+      ambiguous.
+    ACTARM: >
+      Derive actual arm description from the same validated administered
+      regimen used for ACTARMCD. Preserve uncertainty when incomplete or
+      unplanned treatment cannot be resolved.
+    COUNTRY: >
+      Derive country only from approved site-to-country evidence applicable to
+      the participant and standardize it to the required submission value.
+
+  AE:
+    AESEQ: >
+      Derive a stable sequence within subject using the approved adverse-event
+      record structure, event chronology, and deterministic record tie-breakers.
+    AESTDTC: >
+      Construct the start date/time from the available date, time, combined
+      date/time, and unknown-time indicators without adding uncollected
+      precision.
+    AEENDTC: >
+      Construct the end date/time from available end components while
+      respecting ongoing-event status and unknown-time indicators. Do not
+      impute an end for an ongoing event.
+
+  CM:
+    CMSEQ: >
+      Derive a stable sequence within subject using medication record identity,
+      chronology, and deterministic tie-breakers.
+    CMSTDTC: >
+      Reconcile available start date, time, combined date/time, partial-date,
+      and unknown-time fields without adding precision.
+    CMENDTC: >
+      Reconcile available end date/time fields and ongoing status. Leave the
+      end unresolved when ongoing treatment or collected precision does not
+      support a complete value.
+
+  DS:
+    DSSEQ: >
+      Derive a stable sequence within subject after consolidating applicable
+      completion, withdrawal, and randomisation disposition records.
+    DSSTDTC: >
+      Select the date/time associated with the actual disposition event and
+      preserve its collected precision; do not substitute a different form's
+      date without contextual support.
+
+  EG:
+    EGTESTCD: >
+      Normalize the available wide ECG measurements and interpretations into
+      one record per supported test, using consistent test codes and retaining
+      the matching result context.
+    EGDTC: >
+      Construct collection date/time consistently across scheduled and
+      unscheduled ECG structures without adding uncollected precision.
+
+  EX:
+    EXSEQ: >
+      Derive a stable sequence within subject using exposure chronology,
+      injection or record identifiers, and deterministic tie-breakers.
+    EXDOSE: >
+      Derive administered dose only after understanding whether multiple
+      records represent split injections or separate administrations. Do not
+      aggregate dose records without support from the current exposure
+      structure.
+    EXSTDTC: >
+      Construct exposure start date/time from supported date and time fields,
+      preserving collected precision and the relationship among split records.
+
+  IE:
+    IESEQ: >
+      Derive a stable sequence within subject and criterion category using the
+      approved eligibility record structure and deterministic record order.
+
+  IS:
+    ISSEQ: >
+      Derive a stable sequence within subject after reconciling specimen
+      collection records with external immunogenicity result records.
+    ISTESTCD: >
+      Derive consistent immunogenicity test codes from the available analyte,
+      screening, confirmatory, and titre result structure.
+    ISORRES: >
+      Select the original result appropriate to each immunogenicity test record
+      without collapsing screening, confirmatory, and titre results into one
+      value.
+
+  LB:
+    LBSEQ: >
+      Derive a stable sequence within subject after reconciling collection,
+      analyte result, visit, and specimen context across applicable sources.
+    LBTESTCD: >
+      Normalize analyte names from applicable central and form-level laboratory
+      structures to consistent test codes without inventing unsupported tests.
+    LBORRES: >
+      Select the original collected or reported result together with its
+      matching original unit and preserve qualitative versus numeric meaning.
+    LBSTRESN: >
+      Derive a numeric standardized result only when the approved standardized
+      value and unit conversion context support it; do not parse or impute an
+      unsupported numeric value.
+
+  MH:
+    MHSEQ: >
+      Derive a stable sequence within subject using medical-history record
+      identity, chronology, and deterministic tie-breakers.
+    MHSTDTC: >
+      Represent the collected medical-history start date at its available
+      precision without imputing missing components.
+    MHENDTC: >
+      Derive the end date only when supported by collected end components and
+      ongoing status; do not assign an end to an ongoing condition.
+
+  PC:
+    PCSEQ: >
+      Derive a stable sequence within subject after reconciling scheduled
+      pharmacokinetic collection records with external concentration results.
+    PCTESTCD: >
+      Derive consistent pharmacokinetic test codes from the current analyte and
+      biological-matrix context.
+    PCORRES: >
+      Match each external concentration result and unit to the correct subject,
+      visit, timepoint, analyte, and specimen context.
+    PCDTC: >
+      Use the supported specimen collection date/time from the collection
+      record matched to the result, preserving collected precision.
+
+  PE:
+    PESEQ: >
+      Derive a stable sequence within subject using examination chronology,
+      test identity, and deterministic record tie-breakers.
+    PETESTCD: >
+      Normalize examination tests and findings into consistent test records,
+      retaining not-done reasons and other-specify context where applicable.
+
+  PR:
+    PRSEQ: >
+      Derive a stable sequence within subject using procedure record identity,
+      chronology, and deterministic tie-breakers.
+    PRSTDTC: >
+      Represent the collected procedure start date at its available precision
+      without imputing missing components.
+
+  QS:
+    QSSEQ: >
+      Derive a stable sequence within subject, assessment, and timepoint using
+      the approved questionnaire record structure.
+    QSTESTCD: >
+      Normalize wide symptom or assessment items into one record per supported
+      question while retaining the matching result and timepoint context.
+
+  SV:
+    VISITNUM: >
+      Derive visit number from the approved folder sequence or study visit
+      convention, handling unscheduled visits separately and deterministically.
+    SVSTDTC: >
+      Select the supported actual visit date from scheduled or unscheduled visit
+      records and preserve collected precision.
+    SVENDTC: >
+      Derive visit end only when the current visit structure supplies a
+      defensible end boundary; do not copy the start date merely to populate it.
+
+  VS:
+    VSSEQ: >
+      Derive a stable sequence within subject after normalizing wide vital-sign
+      measurements across scheduled, log, height/weight, and unscheduled forms.
+    VSTESTCD: >
+      Convert each supported wide vital-sign measurement into a consistent test
+      record while retaining position, timepoint, and clinical-significance
+      context.
+    VSDTC: >
+      Construct collection date/time consistently across applicable vital-sign
+      forms without adding uncollected precision.

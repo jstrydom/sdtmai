@@ -1,0 +1,21 @@
+Package: sdtmai
+Type: Package
+Title: Minimal AI-Assisted SDTM Mapping Proof of Concept
+Version: 0.1.0
+Authors@R: person("ClinicalAI", "SDTM POC Team", email = "noreply@example.com", role = c("aut", "cre"))
+Description: Generates a draft, programmer-reviewable SDTM Demographics mapping
+    from approved study metadata, local SDTMIG metadata, and selected study
+    context using an OpenAI-compatible endpoint. This package is an exploratory
+    proof of concept and does not generate SDTM datasets or transformation code.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.2.0)
+Imports:
+    dplyr,
+    haven,
+    httr2,
+    jsonlite,
+    officer,
+    readr,
+    readxl,
+    yaml

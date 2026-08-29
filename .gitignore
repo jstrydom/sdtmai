@@ -1,0 +1,9 @@
+.Renviron
+.Rhistory
+.RData
+.env
+.Rproj.user/
+r-library/
+
+output/*
+!output/.gitkeep

@@ -1,0 +1,8 @@
+^run\.R$
+^config$
+^input$
+^output$
+^Documentation$
+^r-library$
+^\.gitignore$
+^README\.md$
