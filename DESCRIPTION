@@ -3,10 +3,13 @@ Type: Package
 Title: Minimal AI-Assisted SDTM Mapping Proof of Concept
 Version: 0.1.0
 Authors@R: person("ClinicalAI", "SDTM POC Team", email = "noreply@example.com", role = c("aut", "cre"))
-Description: Generates a draft, programmer-reviewable SDTM Demographics mapping
-    from approved study metadata, local SDTMIG metadata, and selected study
-    context using an OpenAI-compatible endpoint. This package is an exploratory
-    proof of concept and does not generate SDTM datasets or transformation code.
+Description: Generates draft, programmer-reviewable SDTM mappings for domains
+    available in a supplied SDTMIG workbook, using approved study metadata,
+    selected study context, and an OpenAI-compatible endpoint. Deterministic
+    programmer-review validation supports the same workbook domains. This
+    exploratory proof of concept generates R transformation code for one
+    approved SDTM domain per mapping file and does not execute generated code or
+    SDTM datasets.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Depends: R (>= 4.2.0)

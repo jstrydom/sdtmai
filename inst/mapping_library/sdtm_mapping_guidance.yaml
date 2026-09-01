@@ -42,9 +42,12 @@ domains:
       the participant and standardize it to the required submission value.
 
   AE:
+    USUBJID: >
+      Construct USUBJID consistently from the approved study and subject
+      identifiers. Use a "-" delimiter.  
     AESEQ: >
-      Derive a stable sequence within subject using the approved adverse-event
-      record structure, event chronology, and deterministic record tie-breakers.
+      Within each USUBJID, assign sequential integers using the stable source
+      record order defined by RecordId.
     AESTDTC: >
       Construct the start date/time from the available date, time, combined
       date/time, and unknown-time indicators without adding uncollected
@@ -115,6 +118,9 @@ domains:
       value.
 
   LB:
+    USUBJID: >
+      Construct USUBJID consistently from the approved study and subject
+      identifiers. Use a "-" delimiter.  
     LBSEQ: >
       Derive a stable sequence within subject after reconciling collection,
       analyte result, visit, and specimen context across applicable sources.

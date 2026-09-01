@@ -15,6 +15,9 @@ validate_mapping_response <- function(
   if (!identical(proposal$domain, domain)) {
     stop(sprintf("AI response domain must exactly equal '%s'.", domain), call. = FALSE)
   }
+  if (!is.list(proposal$assessment)) {
+    stop("Malformed AI response: assessment must be a JSON object.", call. = FALSE)
+  }
   if (!is.list(proposal$mappings) || !is.list(proposal$unresolved) ||
       !is.list(proposal$not_applicable)) {
     stop("Malformed AI response: disposition collections must be JSON arrays.", call. = FALSE)
@@ -27,6 +30,13 @@ validate_mapping_response <- function(
 
   for (mapping_index in seq_along(proposal$mappings)) {
     mapping <- proposal$mappings[[mapping_index]]
+    if (!is.list(mapping) ||
+        !all(c("target_variable", "sources", "mapping_type") %in% names(mapping))) {
+      stop(
+        sprintf("Malformed AI response: mappings item %s is missing required fields.", mapping_index),
+        call. = FALSE
+      )
+    }
     target_variable <- mapping$target_variable
 
     if (!is.character(target_variable) || length(target_variable) != 1 ||
@@ -58,6 +68,13 @@ validate_mapping_response <- function(
     }
 
     for (source_index in seq_along(mapping$sources)) {
+      if (!is.list(mapping$sources[[source_index]]) ||
+          !all(c("dataset", "variable") %in% names(mapping$sources[[source_index]]))) {
+        stop(
+          sprintf("Malformed AI response: source %s for target '%s' must contain dataset and variable.", source_index, target_variable),
+          call. = FALSE
+        )
+      }
       source_dataset <- mapping$sources[[source_index]]$dataset
       source_variable <- mapping$sources[[source_index]]$variable
 
@@ -86,6 +103,13 @@ validate_mapping_response <- function(
   }
 
   for (unresolved_index in seq_along(proposal$unresolved)) {
+    if (!is.list(proposal$unresolved[[unresolved_index]]) ||
+        !"target_variable" %in% names(proposal$unresolved[[unresolved_index]])) {
+      stop(
+        sprintf("Malformed AI response: unresolved item %s is missing target_variable.", unresolved_index),
+        call. = FALSE
+      )
+    }
     target_variable <- proposal$unresolved[[unresolved_index]]$target_variable
     if (!is.character(target_variable) || length(target_variable) != 1 ||
         !target_variable %in% permitted_targets) {
@@ -102,6 +126,14 @@ validate_mapping_response <- function(
   }
 
   for (not_applicable_index in seq_along(proposal$not_applicable)) {
+    if (!is.list(proposal$not_applicable[[not_applicable_index]]) ||
+        !all(c("target_variable", "reason", "evidence") %in%
+             names(proposal$not_applicable[[not_applicable_index]]))) {
+      stop(
+        sprintf("Malformed AI response: not_applicable item %s is missing required fields.", not_applicable_index),
+        call. = FALSE
+      )
+    }
     target_variable <- proposal$not_applicable[[not_applicable_index]]$target_variable
     if (!is.character(target_variable) || length(target_variable) != 1 ||
         !target_variable %in% permitted_targets) {
@@ -158,10 +190,25 @@ validate_mapping_response <- function(
     )
   }
 
+  returned_targets <- c(mapped_targets, unresolved_targets, not_applicable_targets)
+  missing_targets <- setdiff(permitted_targets, returned_targets)
+  if (length(missing_targets) > 0) {
+    stop(
+      sprintf(
+        "AI response omitted target variable(s) required by the supplied %s SDTMIG metadata: %s",
+        domain,
+        paste(missing_targets, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
   invisible(TRUE)
 }
 
-build_dm_review_table <- function(proposal, dm_variables) {
+build_mapping_review_table <- function(proposal, domain_reference) {
+  domain <- normalize_sdtm_domain(proposal$domain)
+  domain_variables <- domain_reference$variables
   review_table <- data.frame(
     domain = character(),
     target_variable = character(),
@@ -188,8 +235,8 @@ build_dm_review_table <- function(proposal, dm_variables) {
 
   for (mapping_index in seq_along(proposal$mappings)) {
     mapping <- proposal$mappings[[mapping_index]]
-    target_row <- dm_variables[
-      dm_variables[["Variable Name"]] == mapping$target_variable,
+    target_row <- domain_variables[
+      domain_variables[["Variable Name"]] == mapping$target_variable,
       ,
       drop = FALSE
     ]
@@ -209,7 +256,7 @@ build_dm_review_table <- function(proposal, dm_variables) {
     if (is.null(rationale)) rationale <- ""
 
     review_table <- dplyr::bind_rows(review_table, data.frame(
-      domain = "DM",
+      domain = domain,
       target_variable = mapping$target_variable,
       target_label = as.character(target_row[["Variable Label"]][1]),
       core = as.character(target_row[["Core"]][1]),
@@ -235,8 +282,8 @@ build_dm_review_table <- function(proposal, dm_variables) {
 
   for (unresolved_index in seq_along(proposal$unresolved)) {
     unresolved <- proposal$unresolved[[unresolved_index]]
-    target_row <- dm_variables[
-      dm_variables[["Variable Name"]] == unresolved$target_variable,
+    target_row <- domain_variables[
+      domain_variables[["Variable Name"]] == unresolved$target_variable,
       ,
       drop = FALSE
     ]
@@ -244,7 +291,7 @@ build_dm_review_table <- function(proposal, dm_variables) {
     if (is.null(reason)) reason <- ""
 
     review_table <- dplyr::bind_rows(review_table, data.frame(
-      domain = "DM",
+      domain = domain,
       target_variable = unresolved$target_variable,
       target_label = as.character(target_row[["Variable Label"]][1]),
       core = as.character(target_row[["Core"]][1]),
@@ -270,8 +317,8 @@ build_dm_review_table <- function(proposal, dm_variables) {
 
   for (not_applicable_index in seq_along(proposal$not_applicable)) {
     not_applicable <- proposal$not_applicable[[not_applicable_index]]
-    target_row <- dm_variables[
-      dm_variables[["Variable Name"]] == not_applicable$target_variable,
+    target_row <- domain_variables[
+      domain_variables[["Variable Name"]] == not_applicable$target_variable,
       ,
       drop = FALSE
     ]
@@ -281,7 +328,7 @@ build_dm_review_table <- function(proposal, dm_variables) {
     if (is.null(evidence)) evidence <- ""
 
     review_table <- dplyr::bind_rows(review_table, data.frame(
-      domain = "DM",
+      domain = domain,
       target_variable = not_applicable$target_variable,
       target_label = as.character(target_row[["Variable Label"]][1]),
       core = as.character(target_row[["Core"]][1]),
@@ -306,4 +353,8 @@ build_dm_review_table <- function(proposal, dm_variables) {
   }
 
   review_table
+}
+
+build_dm_review_table <- function(proposal, dm_variables) {
+  build_mapping_review_table(proposal, list(variables = dm_variables))
 }

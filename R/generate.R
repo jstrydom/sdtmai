@@ -1,15 +1,15 @@
-#' Generate a draft DM mapping for programmer review
+#' Generate a draft SDTM mapping for programmer review
 #'
-#' Reads approved source metadata, local SDTMIG metadata, and DM-specific study
+#' Reads approved source metadata, local SDTMIG metadata, and optional study
 #' context; requests one structured proposal from an OpenAI-compatible endpoint;
 #' validates the response; and optionally writes a combined review CSV.
 #'
-#' @param domain SDTM domain. Version 0.1 supports only `"DM"`.
+#' @param domain SDTM domain present in the supplied SDTMIG workbook.
 #' @param metadata Path to the approved study metadata JSON.
 #' @param sdtmig Path to the local SDTMIG workbook.
-#' @param protocol Path to the study protocol DOCX.
-#' @param acrf Path to the annotated CRF DOCX.
-#' @param treatment_arms Path to the Treatment Arms workbook.
+#' @param protocol Optional path to the study protocol DOCX.
+#' @param acrf Optional path to the annotated CRF DOCX.
+#' @param treatment_arms Optional path to the Treatment Arms workbook.
 #' @param ai_config Configuration created by [sdtm_ai_config()].
 #' @param mapping_guidance Optional path to a reusable mapping-guidance YAML
 #'   file. Guidance is intended only for non-trivial reusable logic; direct
@@ -19,8 +19,8 @@
 #'
 #' @return A list with class `clinical_sdtm_mapping_result` containing the
 #'   domain, assessment, mapped, unresolved, not-applicable, and review-table
-#'   results. Expected future programmer decisions are `Accept`, `Amend`,
-#'   `Resolve`, and `Not Applicable`; they are not enforced in Version 0.1.
+#'   results. Expected programmer decisions are `Accept`, `Amend`,
+#'   `Resolve`, and `Not Applicable`; [sdtm_validate_mapping()] enforces them.
 #' @export
 #'
 #' @examples
@@ -42,16 +42,13 @@ sdtm_generate_mapping <- function(
     domain = "DM",
     metadata,
     sdtmig,
-    protocol,
-    acrf,
-    treatment_arms,
+    protocol = NULL,
+    acrf = NULL,
+    treatment_arms = NULL,
     ai_config,
     mapping_guidance = NULL,
     output_file = NULL) {
-  if (!is.character(domain) || length(domain) != 1 || !identical(toupper(domain), "DM")) {
-    stop("Unsupported SDTM domain. Version 0.1 supports only domain = 'DM'.", call. = FALSE)
-  }
-  domain <- "DM"
+  domain <- normalize_sdtm_domain(domain)
 
   if (!inherits(ai_config, "sdtm_ai_config")) {
     stop("ai_config must be created by sdtm_ai_config().", call. = FALSE)
@@ -59,10 +56,7 @@ sdtm_generate_mapping <- function(
 
   input_paths <- list(
     "study metadata" = metadata,
-    "SDTMIG workbook" = sdtmig,
-    "protocol" = protocol,
-    "annotated CRF" = acrf,
-    "Treatment Arms workbook" = treatment_arms
+    "SDTMIG workbook" = sdtmig
   )
   for (input_label in names(input_paths)) {
     assert_input_file(input_paths[[input_label]], input_label)
@@ -74,17 +68,18 @@ sdtm_generate_mapping <- function(
   }
 
   study <- read_approved_study_metadata(metadata)
-  dm_reference <- read_dm_sdtmig_reference(sdtmig)
-  dm_context <- read_dm_study_context(protocol, acrf, treatment_arms)
+  domain_reference <- read_sdtmig_domain_reference(sdtmig, domain)
+  study_context <- read_sdtm_study_context(protocol, acrf, treatment_arms)
   reusable_guidance <- read_mapping_guidance(
     mapping_guidance,
     domain = domain,
-    permitted_targets = dm_reference$permitted_targets
+    permitted_targets = domain_reference$permitted_targets
   )
-  prompt <- build_dm_prompt(
-    study$inventory,
-    dm_reference,
-    dm_context,
+  prompt <- build_sdtm_mapping_prompt(
+    domain = domain,
+    study_inventory = study$inventory,
+    domain_reference = domain_reference,
+    study_context = study_context,
     reusable_guidance = reusable_guidance
   )
 
@@ -116,12 +111,12 @@ sdtm_generate_mapping <- function(
   validate_mapping_response(
     proposal = proposal,
     domain = domain,
-    permitted_targets = dm_reference$permitted_targets,
+    permitted_targets = domain_reference$permitted_targets,
     study_dataset_names = study$dataset_names,
     columns_by_dataset = study$columns_by_dataset
   )
 
-  review_table <- build_dm_review_table(proposal, dm_reference$variables)
+  review_table <- build_mapping_review_table(proposal, domain_reference)
 
   result <- list(
     domain = domain,

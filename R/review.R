@@ -1,4 +1,4 @@
-#' Validate a programmer-reviewed DM mapping
+#' Validate a programmer-reviewed SDTM mapping
 #'
 #' Reads a mapping review CSV produced by [sdtm_generate_mapping()], validates
 #' the programmer's decisions against the approved source metadata and local
@@ -44,10 +44,11 @@ sdtm_validate_mapping <- function(
     check.names = FALSE,
     na.strings = character()
   )
+  domain <- infer_review_domain(review_table)
   study <- read_approved_study_metadata(metadata)
-  dm_reference <- read_dm_sdtmig_reference(sdtmig)
+  domain_reference <- read_sdtmig_domain_reference(sdtmig, domain)
 
-  result <- validate_programmer_review(review_table, study, dm_reference)
+  result <- validate_programmer_review(review_table, study, domain_reference)
 
   if (!is.null(output_file)) {
     output_directory <- dirname(output_file)
@@ -68,7 +69,31 @@ split_review_sources <- function(value) {
   trimws(strsplit(value, ";", fixed = TRUE)[[1]])
 }
 
-validate_programmer_review <- function(review_table, study, dm_reference) {
+infer_review_domain <- function(review_table) {
+  if (!is.data.frame(review_table) || !"domain" %in% names(review_table)) {
+    stop("Mapping review CSV is missing required column: domain", call. = FALSE)
+  }
+  row_domains <- toupper(trimws(as.character(review_table$domain)))
+  if (any(is.na(row_domains) | !nzchar(row_domains))) {
+    stop(
+      "Mapping review CSV must contain exactly one non-empty domain in every row; found a blank domain.",
+      call. = FALSE
+    )
+  }
+  domains <- unique(row_domains)
+  if (length(domains) != 1) {
+    stop(
+      sprintf(
+        "Mapping review CSV must contain exactly one non-empty domain; found: %s",
+        if (length(domains) == 0) "<none>" else paste(domains, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  domains[[1]]
+}
+
+validate_programmer_review <- function(review_table, study, domain_reference) {
   required_columns <- c(
     "domain", "target_variable", "target_label", "core", "role",
     "ai_disposition", "ai_mapping_type", "ai_source_datasets",
@@ -96,30 +121,28 @@ validate_programmer_review <- function(review_table, study, dm_reference) {
     review_table[[column_name]][is.na(review_table[[column_name]])] <- ""
   }
 
-  review_table$domain <- trimws(review_table$domain)
+  review_table$domain <- toupper(trimws(review_table$domain))
   review_table$target_variable <- trimws(review_table$target_variable)
   review_table$ai_disposition <- trimws(review_table$ai_disposition)
   review_table$programmer_decision <- trimws(review_table$programmer_decision)
   review_table$approved_mapping_type <- trimws(review_table$approved_mapping_type)
 
-  domains <- unique(review_table$domain)
-  if (length(domains) != 1 || !identical(domains, "DM")) {
+  domain <- infer_review_domain(review_table)
+  if (!is.null(domain_reference$domain) && !identical(domain_reference$domain, domain)) {
     stop(
-      sprintf(
-        "Mapping review domain must be DM in every row; found: %s",
-        paste(domains[nzchar(domains)], collapse = ", ")
-      ),
+      sprintf("Mapping review domain '%s' does not match the loaded SDTMIG domain '%s'.", domain, domain_reference$domain),
       call. = FALSE
     )
   }
 
   invalid_targets <- unique(review_table$target_variable[
-    !review_table$target_variable %in% dm_reference$permitted_targets
+    !review_table$target_variable %in% domain_reference$permitted_targets
   ])
   if (length(invalid_targets) > 0) {
     stop(
       sprintf(
-        "Target variable(s) not present in supplied DM SDTMIG metadata: %s",
+        "Target variable(s) not present in supplied %s SDTMIG metadata: %s",
+        domain,
         paste(invalid_targets, collapse = ", ")
       ),
       call. = FALSE
@@ -202,8 +225,8 @@ validate_programmer_review <- function(review_table, study, dm_reference) {
       )
     }
 
-    target_reference <- dm_reference$variables[
-      dm_reference$variables[["Variable Name"]] == target_variable,
+    target_reference <- domain_reference$variables[
+      domain_reference$variables[["Variable Name"]] == target_variable,
       ,
       drop = FALSE
     ]
@@ -314,7 +337,7 @@ validate_programmer_review <- function(review_table, study, dm_reference) {
     }
 
     approved_mapping <- dplyr::bind_rows(approved_mapping, data.frame(
-      domain = "DM",
+      domain = domain,
       target_variable = target_variable,
       target_label = as.character(target_reference[["Variable Label"]][1]),
       core = as.character(target_reference[["Core"]][1]),
@@ -330,7 +353,7 @@ validate_programmer_review <- function(review_table, study, dm_reference) {
   }
 
   result <- list(
-    domain = "DM",
+    domain = domain,
     review_table = review_table,
     approved_mapping = approved_mapping,
     unresolved_review = review_table[FALSE, , drop = FALSE]

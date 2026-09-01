@@ -76,14 +76,24 @@ read_approved_study_metadata <- function(metadata_path) {
   )
 }
 
-read_dm_sdtmig_reference <- function(sdtmig_path) {
-  workbook_sheets <- readxl::excel_sheets(sdtmig_path)
+normalize_sdtm_domain <- function(domain) {
+  if (!is.character(domain) || length(domain) != 1 || is.na(domain) ||
+      !nzchar(trimws(domain))) {
+    stop("domain must be one non-empty character value.", call. = FALSE)
+  }
+  toupper(trimws(domain))
+}
+
+read_sdtmig_domain_reference <- function(sdtmig, domain) {
+  assert_input_file(sdtmig, "SDTMIG workbook")
+  domain <- normalize_sdtm_domain(domain)
+  workbook_sheets <- readxl::excel_sheets(sdtmig)
   if (!all(c("Variables", "Datasets") %in% workbook_sheets)) {
     stop("SDTMIG workbook must contain Variables and Datasets sheets.", call. = FALSE)
   }
 
-  sdtmig_variables <- readxl::read_excel(sdtmig_path, sheet = "Variables")
-  sdtmig_datasets <- readxl::read_excel(sdtmig_path, sheet = "Datasets")
+  sdtmig_variables <- readxl::read_excel(sdtmig, sheet = "Variables")
+  sdtmig_datasets <- readxl::read_excel(sdtmig, sheet = "Datasets")
 
   required_variable_columns <- c(
     "Dataset Name", "Variable Name", "Variable Label", "Type",
@@ -99,29 +109,67 @@ read_dm_sdtmig_reference <- function(sdtmig_path) {
     stop("SDTMIG Datasets sheet is missing one or more required columns.", call. = FALSE)
   }
 
-  dm_variables <- sdtmig_variables[
-    sdtmig_variables[["Dataset Name"]] == "DM" & !is.na(sdtmig_variables[["Dataset Name"]]),
+  variable_domains <- unique(trimws(as.character(
+    sdtmig_variables[["Dataset Name"]][!is.na(sdtmig_variables[["Dataset Name"]])]
+  )))
+  dataset_domains <- unique(trimws(as.character(
+    sdtmig_datasets[["Dataset Name"]][!is.na(sdtmig_datasets[["Dataset Name"]])]
+  )))
+  available_domains <- intersect(variable_domains[nzchar(variable_domains)],
+                                 dataset_domains[nzchar(dataset_domains)])
+  if (!domain %in% available_domains) {
+    stop(
+      sprintf(
+        "Unsupported SDTM domain '%s'. The supplied SDTMIG does not contain this domain.",
+        domain
+      ),
+      call. = FALSE
+    )
+  }
+
+  domain_variables <- sdtmig_variables[
+    trimws(as.character(sdtmig_variables[["Dataset Name"]])) == domain &
+      !is.na(sdtmig_variables[["Dataset Name"]]),
     ,
     drop = FALSE
   ]
-  dm_dataset <- sdtmig_datasets[
-    sdtmig_datasets[["Dataset Name"]] == "DM" & !is.na(sdtmig_datasets[["Dataset Name"]]),
+  domain_dataset <- sdtmig_datasets[
+    trimws(as.character(sdtmig_datasets[["Dataset Name"]])) == domain &
+      !is.na(sdtmig_datasets[["Dataset Name"]]),
     ,
     drop = FALSE
   ]
 
-  if (nrow(dm_variables) == 0 || nrow(dm_dataset) == 0) {
-    stop("SDTMIG workbook does not contain requested domain: DM", call. = FALSE)
+  permitted_targets <- as.character(domain_variables[["Variable Name"]])
+  if (any(is.na(permitted_targets) | !nzchar(trimws(permitted_targets)))) {
+    stop(sprintf("SDTMIG domain '%s' contains a blank target variable name.", domain), call. = FALSE)
+  }
+  if (anyDuplicated(permitted_targets)) {
+    duplicate_targets <- unique(permitted_targets[duplicated(permitted_targets)])
+    stop(
+      sprintf(
+        "SDTMIG domain '%s' contains duplicate target variable(s): %s",
+        domain,
+        paste(duplicate_targets, collapse = ", ")
+      ),
+      call. = FALSE
+    )
   }
 
   list(
-    variables = dm_variables,
-    dataset = dm_dataset,
-    permitted_targets = as.character(dm_variables[["Variable Name"]])
+    domain = domain,
+    variables = domain_variables,
+    dataset = domain_dataset,
+    permitted_targets = permitted_targets,
+    available_domains = available_domains
   )
 }
 
-read_dm_study_context <- function(protocol_path, acrf_path, treatment_arms_path) {
+read_dm_sdtmig_reference <- function(sdtmig_path) {
+  read_sdtmig_domain_reference(sdtmig_path, "DM")
+}
+
+read_treatment_arms_context <- function(treatment_arms_path) {
   treatment_arms_raw <- readxl::read_excel(
     treatment_arms_path,
     sheet = "Treatment Arms",
@@ -162,59 +210,34 @@ read_dm_study_context <- function(protocol_path, acrf_path, treatment_arms_path)
     stop("Cleaned Treatment Arms data must contain Cohort, ARMCD, and ARM columns.", call. = FALSE)
   }
 
-  protocol_summary <- officer::docx_summary(officer::read_docx(protocol_path))
-  protocol_text <- protocol_summary[["text"]]
-  protocol_dm_keywords <- paste(
-    c(
-      "ABC-PHARM-01", "Phase 1.*First-in-Human", "first-in-human.*single-center",
-      "study design", "study population", "single ascending dose", "cohort structure",
-      "participant flow", "five dose levels", "screened within", "Day 1",
-      "study completion", "study duration", "demographic data", "informed consent",
-      "enrollment", "cohort assignment", "planned enrollment", "subcutaneous.*dose"
-    ),
-    collapse = "|"
-  )
-  protocol_exclusion_keywords <- paste(
-    c(
-      "nonclinical package", "concomitant medications", "exploratory blood samples",
-      "adverse event is any", "ClinicalTrials.gov", "PK analysis", "PK parameter",
-      "pharmacokinetic parameter", "receptor.?occupancy assessment", "ADA assessment",
-      "stopping rule", "dose escalation committee", "references"
-    ),
-    collapse = "|"
-  )
-  protocol_dm_row <- grepl(protocol_dm_keywords, protocol_text, ignore.case = TRUE) &
-    !grepl(protocol_exclusion_keywords, protocol_text, ignore.case = TRUE)
-  protocol_context <- protocol_text[protocol_dm_row]
-  protocol_context <- unique(trimws(protocol_context[!is.na(protocol_context)]))
-  protocol_context <- protocol_context[nzchar(protocol_context)]
+  treatment_arms
+}
 
-  acrf_summary <- officer::docx_summary(officer::read_docx(acrf_path))
-  acrf_text <- acrf_summary[["text"]]
-  acrf_dm_keywords <- paste(
-    c(
-      "Enrollment", "Consent", "Demographics", "Randomisation", "Randomization",
-      "Cohort Assignment", "Study Completion", "Annotation Index", "gl_enroll",
-      "gl_dm", "gl_ds_rand", "RFICDTC", "ARMCD", "BRTHDTC", "AGEU",
-      "ETHNIC", "RACE", "RFXSTDTC", "DM\\.ARM", "DM\\.SEX", "DM\\.AGE"
-    ),
-    collapse = "|"
-  )
-  acrf_dm_row <- grepl(acrf_dm_keywords, acrf_text, ignore.case = TRUE)
-  acrf_context <- acrf_text[acrf_dm_row]
-  acrf_context <- unique(trimws(acrf_context[!is.na(acrf_context)]))
-  acrf_context <- acrf_context[nzchar(acrf_context)]
+read_document_context <- function(path, label) {
+  if (is.null(path)) return(character())
+  assert_input_file(path, label)
+  document_summary <- officer::docx_summary(officer::read_docx(path))
+  document_text <- unique(trimws(as.character(document_summary[["text"]])))
+  document_text[!is.na(document_text) & nzchar(document_text)]
+}
 
-  if (length(protocol_context) == 0) {
-    stop("No DM-relevant protocol context was extracted.", call. = FALSE)
+read_sdtm_study_context <- function(
+    protocol_path = NULL,
+    acrf_path = NULL,
+    treatment_arms_path = NULL) {
+  treatment_arms <- if (is.null(treatment_arms_path)) {
+    data.frame()
+  } else {
+    assert_input_file(treatment_arms_path, "Treatment Arms workbook")
+    read_treatment_arms_context(treatment_arms_path)
   }
-  if (length(acrf_context) == 0) {
-    stop("No DM-relevant annotated CRF context was extracted.", call. = FALSE)
-  }
-
   list(
-    protocol_context = protocol_context,
-    annotated_crf_context = acrf_context,
+    protocol_context = read_document_context(protocol_path, "protocol"),
+    annotated_crf_context = read_document_context(acrf_path, "annotated CRF"),
     treatment_arms = treatment_arms
   )
+}
+
+read_dm_study_context <- function(protocol_path, acrf_path, treatment_arms_path) {
+  read_sdtm_study_context(protocol_path, acrf_path, treatment_arms_path)
 }

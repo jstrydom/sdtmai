@@ -23,6 +23,102 @@ expect_error_matching <- function(expression, pattern) {
 
 config <- sdtm_ai_config(model = "test-model")
 
+create_sdtmig_workbook_fixture <- function(path) {
+  fixture_root <- file.path(tempdir(), paste0("sdtmig-xlsx-", Sys.getpid()))
+  dir.create(file.path(fixture_root, "_rels"), recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(fixture_root, "xl", "_rels"), recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(fixture_root, "xl", "worksheets"), recursive = TRUE, showWarnings = FALSE)
+
+  xml_escape <- function(value) {
+    value <- gsub("&", "&amp;", as.character(value), fixed = TRUE)
+    value <- gsub("<", "&lt;", value, fixed = TRUE)
+    gsub(">", "&gt;", value, fixed = TRUE)
+  }
+  sheet_xml <- function(rows) {
+    row_xml <- vapply(seq_along(rows), function(row_index) {
+      values <- rows[[row_index]]
+      cells <- vapply(seq_along(values), function(column_index) {
+        reference <- paste0(LETTERS[[column_index]], row_index)
+        sprintf(
+          '<c r="%s" t="inlineStr"><is><t>%s</t></is></c>',
+          reference,
+          xml_escape(values[[column_index]])
+        )
+      }, character(1))
+      sprintf('<row r="%s">%s</row>', row_index, paste0(cells, collapse = ""))
+    }, character(1))
+    paste0(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+      '<sheetData>', paste0(row_xml, collapse = ""), '</sheetData></worksheet>'
+    )
+  }
+
+  variable_headers <- c(
+    "Dataset Name", "Variable Name", "Variable Label", "Type",
+    "CDISC CT Codelist Code(s)", "Codelist Submission Value(s)",
+    "Described Value Domain(s)", "Value List", "Role", "CDISC Notes", "Core"
+  )
+  variable_rows <- list(
+    variable_headers,
+    c("DM", "SEX", "Sex", "Char", "", "", "", "", "Qualifier", "", "Req"),
+    c("AE", "AETERM", "Reported Term", "Char", "", "", "", "", "Topic", "", "Req"),
+    c("AE", "AESEQ", "Sequence Number", "Num", "", "", "", "", "Identifier", "", "Req"),
+    c("LB", "LBORRES", "Result or Finding", "Char", "", "", "", "", "Result", "", "Exp"),
+    c("VS", "VSTESTCD", "Vital Signs Test Short Name", "Char", "", "", "", "", "Topic", "", "Req"),
+    c("CM", "CMTRT", "Reported Name of Drug", "Char", "", "", "", "", "Topic", "", "Req"),
+    c("MH", "MHTERM", "Reported Term", "Char", "", "", "", "", "Topic", "", "Req")
+  )
+  dataset_rows <- c(
+    list(c("Dataset Name", "Dataset Label", "Structure")),
+    lapply(c("DM", "AE", "LB", "VS", "CM", "MH"), function(domain) {
+      c(domain, paste(domain, "fixture"), "Fixture structure")
+    })
+  )
+
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+    '<Default Extension="xml" ContentType="application/xml"/>',
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+    '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+    '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+    '</Types>'
+  ), file.path(fixture_root, "[Content_Types].xml"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>',
+    '</Relationships>'
+  ), file.path(fixture_root, "_rels", ".rels"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+    '<sheets><sheet name="Variables" sheetId="1" r:id="rId1"/><sheet name="Datasets" sheetId="2" r:id="rId2"/></sheets>',
+    '</workbook>'
+  ), file.path(fixture_root, "xl", "workbook.xml"))
+  writeLines(c(
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>',
+    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>',
+    '</Relationships>'
+  ), file.path(fixture_root, "xl", "_rels", "workbook.xml.rels"))
+  writeLines(sheet_xml(variable_rows), file.path(fixture_root, "xl", "worksheets", "sheet1.xml"))
+  writeLines(sheet_xml(dataset_rows), file.path(fixture_root, "xl", "worksheets", "sheet2.xml"))
+
+  previous_directory <- getwd()
+  setwd(fixture_root)
+  on.exit(setwd(previous_directory), add = TRUE)
+  utils::zip(
+    zipfile = normalizePath(path, mustWork = FALSE),
+    files = c("[Content_Types].xml", "_rels", "xl"),
+    flags = "-r9Xq"
+  )
+  invisible(path)
+}
+
 project_test_root <- file.path(
   tempdir(),
   paste0("clinical-sdtm-project-", Sys.getpid())
@@ -181,7 +277,7 @@ expect_error_matching(
 
 expect_error_matching(
   sdtm_generate_mapping(
-    domain = "AE",
+    domain = "DM",
     metadata = "missing.json",
     sdtmig = "missing.xlsx",
     protocol = "missing.docx",
@@ -189,7 +285,7 @@ expect_error_matching(
     treatment_arms = "missing.xlsx",
     ai_config = config
   ),
-  "supports only domain = 'DM'"
+  "study metadata file does not exist"
 )
 
 expect_error_matching(
@@ -352,6 +448,158 @@ stopifnot(
   grepl("## F. Output contract", prompt_with_guidance, fixed = TRUE)
 )
 
+supplied_sdtmig <- file.path(project_fixture$root, "SDTMIG_fixture.xlsx")
+create_sdtmig_workbook_fixture(supplied_sdtmig)
+domain_references <- lapply(c("DM", "AE", "LB", "CM"), function(domain) {
+  sdtmai:::read_sdtmig_domain_reference(supplied_sdtmig, domain)
+})
+names(domain_references) <- c("DM", "AE", "LB", "CM")
+lowercase_vs_reference <- sdtmai:::read_sdtmig_domain_reference(
+  supplied_sdtmig,
+  " vs "
+)
+stopifnot(
+  identical(domain_references$DM$domain, "DM"),
+  identical(domain_references$AE$domain, "AE"),
+  identical(domain_references$LB$domain, "LB"),
+  identical(domain_references$CM$domain, "CM"),
+  identical(lowercase_vs_reference$domain, "VS"),
+  all(domain_references$AE$variables[["Dataset Name"]] == "AE"),
+  all(domain_references$LB$variables[["Dataset Name"]] == "LB"),
+  identical(
+    domain_references$AE$permitted_targets,
+    as.character(domain_references$AE$variables[["Variable Name"]])
+  )
+)
+expect_error_matching(
+  sdtmai:::read_sdtmig_domain_reference(supplied_sdtmig, "XYZ"),
+  "Unsupported SDTM domain 'XYZ'.*does not contain this domain"
+)
+expect_error_matching(
+  sdtm_generate_mapping(
+    domain = "XYZ",
+    metadata = generated_metadata_file,
+    sdtmig = supplied_sdtmig,
+    ai_config = config
+  ),
+  "Unsupported SDTM domain 'XYZ'.*does not contain this domain"
+)
+
+loaded_ae_guidance <- sdtmai:::read_mapping_guidance(
+  valid_guidance_file,
+  domain = "AE",
+  permitted_targets = c("AESEQ")
+)
+stopifnot(
+  identical(names(loaded_ae_guidance), "AESEQ"),
+  !"RACE" %in% names(loaded_ae_guidance)
+)
+
+make_domain_reference <- function(domain, targets) {
+  list(
+    domain = domain,
+    dataset = data.frame(
+      "Dataset Name" = domain,
+      "Dataset Label" = paste(domain, "fixture"),
+      Structure = "Fixture structure",
+      check.names = FALSE,
+      stringsAsFactors = FALSE
+    ),
+    variables = data.frame(
+      "Dataset Name" = rep(domain, length(targets)),
+      "Variable Name" = targets,
+      "Variable Label" = paste(targets, "label"),
+      Core = rep("Exp", length(targets)),
+      Role = rep("Qualifier", length(targets)),
+      check.names = FALSE,
+      stringsAsFactors = FALSE
+    ),
+    permitted_targets = targets
+  )
+}
+
+make_domain_proposal <- function(domain, target) {
+  list(
+    domain = domain,
+    assessment = list(overall_confidence = "HIGH", summary = "Fixture", review_notes = list()),
+    mappings = list(list(
+      target_variable = target,
+      sources = list(list(dataset = "gl_dm", variable = "SEX_STD")),
+      mapping_type = "DIRECT",
+      derivation_description = NULL,
+      confidence = "HIGH",
+      rationale = "Fixture"
+    )),
+    unresolved = list(),
+    not_applicable = list()
+  )
+}
+
+generic_review_columns <- c(
+  "domain", "target_variable", "target_label", "core", "role",
+  "ai_disposition", "ai_mapping_type", "ai_source_datasets",
+  "ai_source_variables", "ai_derivation", "ai_confidence",
+  "ai_rationale", "ai_reason", "ai_evidence", "programmer_decision",
+  "approved_source_datasets", "approved_source_variables",
+  "approved_mapping_type", "approved_derivation", "programmer_comment"
+)
+generic_domains <- list(AE = "AETERM", LB = "LBORRES", CM = "CMTRT")
+generic_review_tables <- lapply(names(generic_domains), function(domain) {
+  reference <- make_domain_reference(domain, generic_domains[[domain]])
+  proposal <- make_domain_proposal(domain, generic_domains[[domain]])
+  stopifnot(sdtmai:::validate_mapping_response(
+    proposal,
+    domain = domain,
+    permitted_targets = reference$permitted_targets,
+    study_dataset_names = study_fixture$dataset_names,
+    columns_by_dataset = study_fixture$columns_by_dataset
+  ))
+  prompt <- sdtmai:::build_sdtm_mapping_prompt(
+    domain = domain,
+    study_inventory = prompt_study_inventory_fixture,
+    domain_reference = reference,
+    study_context = list(),
+    reusable_guidance = if (domain == "AE") loaded_ae_guidance else list()
+  )
+  stopifnot(
+    grepl(sprintf("draft %s SDTM mapping", domain), prompt, fixed = TRUE),
+    grepl(sprintf("## D. %s SDTMIG metadata", domain), prompt, fixed = TRUE),
+    !grepl("DM SDTMIG metadata", prompt, fixed = TRUE),
+    if (domain == "AE") grepl("AESEQ", prompt, fixed = TRUE) else
+      !grepl("Reusable approved mapping guidance", prompt, fixed = TRUE)
+  )
+  review <- sdtmai:::build_mapping_review_table(proposal, reference)
+  stopifnot(identical(names(review), generic_review_columns), all(review$domain == domain))
+  review
+})
+stopifnot(all(vapply(generic_review_tables, function(x) {
+  identical(names(x), names(generic_review_tables[[1]]))
+}, logical(1))))
+
+other_domain_target <- make_domain_proposal("AE", "LBORRES")
+expect_error_matching(
+  sdtmai:::validate_mapping_response(
+    other_domain_target,
+    domain = "AE",
+    permitted_targets = c("AETERM"),
+    study_dataset_names = study_fixture$dataset_names,
+    columns_by_dataset = study_fixture$columns_by_dataset
+  ),
+  "LBORRES.*not present.*AE SDTMIG"
+)
+
+omitted_target_proposal <- make_domain_proposal("AE", "AETERM")
+expect_error_matching(
+  sdtmai:::validate_mapping_response(
+    omitted_target_proposal,
+    domain = "AE",
+    permitted_targets = c("AETERM", "AESEQ"),
+    study_dataset_names = study_fixture$dataset_names,
+    columns_by_dataset = study_fixture$columns_by_dataset
+  ),
+  "omitted.*AESEQ"
+)
+
 review_row <- data.frame(
   domain = "DM",
   target_variable = "SEX",
@@ -385,6 +633,57 @@ stopifnot(
   accepted_review$approved_mapping$approved_mapping_type == "DIRECT",
   accepted_review$approved_mapping$approved_source_datasets == "gl_dm",
   accepted_review$approved_mapping$approved_source_variables == "SEX_STD"
+)
+
+for (domain in c("AE", "LB", "CM")) {
+  domain_review <- review_row
+  domain_review$domain <- domain
+  domain_review$target_variable <- generic_domains[[domain]]
+  domain_review$target_label <- paste(generic_domains[[domain]], "label")
+  domain_validation <- sdtmai:::validate_programmer_review(
+    domain_review,
+    study_fixture,
+    make_domain_reference(domain, generic_domains[[domain]])
+  )
+  stopifnot(
+    identical(domain_validation$domain, domain),
+    identical(domain_validation$approved_mapping$domain, domain),
+    identical(
+      domain_validation$approved_mapping$target_variable,
+      generic_domains[[domain]]
+    )
+  )
+}
+
+for (domain in c("AE", "LB")) {
+  public_review <- review_row
+  public_review$domain <- domain
+  public_review$target_variable <- generic_domains[[domain]]
+  public_review$target_label <- paste(generic_domains[[domain]], "label")
+  public_review$ai_source_datasets <- "source_fixture"
+  public_review$ai_source_variables <- "Group"
+  public_review_file <- file.path(
+    project_fixture$mapping_dir,
+    paste0(domain, "_mapping_review_fixture.csv")
+  )
+  utils::write.csv(public_review, public_review_file, row.names = FALSE, na = "")
+  public_validation <- sdtm_validate_mapping(
+    mapping = public_review_file,
+    metadata = generated_metadata_file,
+    sdtmig = supplied_sdtmig
+  )
+  stopifnot(
+    identical(public_validation$domain, domain),
+    identical(public_validation$approved_mapping$domain, domain)
+  )
+}
+
+multi_domain_review <- rbind(review_row, review_row)
+multi_domain_review$domain <- c("DM", "AE")
+multi_domain_review$target_variable <- c("SEX", "AETERM")
+expect_error_matching(
+  sdtmai:::infer_review_domain(multi_domain_review),
+  "exactly one.*DM, AE"
 )
 
 invalid_accept <- review_row
@@ -505,11 +804,48 @@ approved_code_row <- accepted_review$approved_mapping[, c(
   "approved_source_variables", "approved_derivation", "programmer_comment"
 )]
 
-unsupported_code_domain <- approved_code_row
-unsupported_code_domain$domain <- "AE"
+ae_code_row <- approved_code_row
+ae_code_row$domain <- " ae "
+ae_code_row$target_variable <- "AETERM"
+ae_code_specification <- sdtmai:::validate_code_mapping(ae_code_row, study_fixture)
+stopifnot(
+  identical(ae_code_specification$domain, "AE"),
+  identical(ae_code_specification$final_object, "ae"),
+  identical(unique(ae_code_specification$mapped_rows$domain), "AE")
+)
+
+lb_code_row <- approved_code_row
+lb_code_row$domain <- "LB"
+lb_code_row$target_variable <- "LBORRES"
+lb_code_specification <- sdtmai:::validate_code_mapping(lb_code_row, study_fixture)
+stopifnot(
+  identical(lb_code_specification$domain, "LB"),
+  identical(lb_code_specification$final_object, "lb")
+)
+for (domain in c("VS", "CM", "MH")) {
+  domain_code_row <- approved_code_row
+  domain_code_row$domain <- domain
+  domain_code_row$target_variable <- paste0(domain, "TEST")
+  domain_code_specification <- sdtmai:::validate_code_mapping(
+    domain_code_row,
+    study_fixture
+  )
+  stopifnot(
+    identical(domain_code_specification$domain, domain),
+    identical(domain_code_specification$final_object, tolower(domain))
+  )
+}
+
+multiple_code_domains <- rbind(approved_code_row, ae_code_row)
 expect_error_matching(
-  sdtmai:::validate_code_mapping(unsupported_code_domain, study_fixture),
-  "supports only DM.*AE"
+  sdtmai:::validate_code_mapping(multiple_code_domains, study_fixture),
+  "exactly one SDTM domain"
+)
+blank_code_domain <- approved_code_row
+blank_code_domain$domain <- ""
+expect_error_matching(
+  sdtmai:::validate_code_mapping(blank_code_domain, study_fixture),
+  "exactly one SDTM domain"
 )
 
 invalid_code_source <- approved_code_row
@@ -558,7 +894,7 @@ missing_subject_study$columns_by_dataset$gl_dm <- setdiff(
   missing_subject_study$columns_by_dataset$gl_dm,
   "SubjectId"
 )
-expect_error_matching(
+stopifnot(identical(
   sdtmai:::validate_source_identifiers(
     code_specification,
     missing_subject_study,
@@ -568,7 +904,121 @@ expect_error_matching(
     visit_key = "Folder",
     record_key = ""
   ),
-  "gl_dm.*configured subject key.*SubjectId"
+  approved_identifiers
+))
+
+heterogeneous_study <- study_fixture
+heterogeneous_study$metadata[[3]] <- list(
+  dataset = "external_lab",
+  file_name = "external_lab.csv",
+  file_path = "//archive.local/provenance/external_lab.csv"
+)
+heterogeneous_study$dataset_names <- c(
+  heterogeneous_study$dataset_names,
+  "external_lab"
+)
+heterogeneous_study$columns_by_dataset$external_lab <- c(
+  "STUDYID", "SUBJID", "LAB_RESULT"
+)
+heterogeneous_mapping <- data.frame(
+  domain = c("LB", "LB", "LB"),
+  target_variable = c("STUDYID", "USUBJID", "LBORRES"),
+  approved_disposition = rep("Mapped", 3),
+  approved_mapping_type = c("MULTI_SOURCE", "MULTI_SOURCE", "DIRECT"),
+  approved_source_datasets = c(
+    "gl_dm;external_lab",
+    "gl_dm;external_lab",
+    "external_lab"
+  ),
+  approved_source_variables = c(
+    "project;STUDYID",
+    "SubjectId;SUBJID",
+    "LAB_RESULT"
+  ),
+  approved_derivation = c(
+    "Reconcile project and STUDYID as approved for their respective records.",
+    "Reconcile SubjectId and SUBJID as approved for their respective records.",
+    ""
+  ),
+  programmer_comment = rep("", 3),
+  stringsAsFactors = FALSE
+)
+heterogeneous_specification <- sdtmai:::validate_code_mapping(
+  heterogeneous_mapping,
+  heterogeneous_study
+)
+heterogeneous_identifiers <- sdtmai:::validate_source_identifiers(
+  heterogeneous_specification,
+  heterogeneous_study,
+  project_key = "project",
+  subject_key = "SubjectId",
+  site_key = "SiteNumber",
+  visit_key = "Folder",
+  record_key = "InstanceRepeatNumber"
+)
+stopifnot(
+  identical(heterogeneous_identifiers$project_key, "project"),
+  identical(heterogeneous_identifiers$subject_key, "SubjectId"),
+  identical(
+    heterogeneous_specification$relevant_metadata[[2]]$columns,
+    c("STUDYID", "SUBJID", "LAB_RESULT")
+  )
+)
+
+heterogeneous_metadata_file <- tempfile(fileext = ".json")
+jsonlite::write_json(
+  list(
+    list(
+      dataset = "gl_dm",
+      file_name = "gl_dm.sas7bdat",
+      columns = heterogeneous_study$columns_by_dataset$gl_dm,
+      row_count = 2,
+      column_types = stats::setNames(
+        as.list(rep("character", length(heterogeneous_study$columns_by_dataset$gl_dm))),
+        heterogeneous_study$columns_by_dataset$gl_dm
+      ),
+      distinct_values = list()
+    ),
+    list(
+      dataset = "external_lab",
+      file_name = "external_lab.csv",
+      columns = heterogeneous_study$columns_by_dataset$external_lab,
+      row_count = 2,
+      column_types = stats::setNames(
+        as.list(rep("character", length(heterogeneous_study$columns_by_dataset$external_lab))),
+        heterogeneous_study$columns_by_dataset$external_lab
+      ),
+      distinct_values = list()
+    )
+  ),
+  heterogeneous_metadata_file,
+  auto_unbox = TRUE,
+  pretty = TRUE
+)
+heterogeneous_mapping_file <- tempfile(fileext = ".csv")
+utils::write.csv(
+  heterogeneous_mapping,
+  heterogeneous_mapping_file,
+  row.names = FALSE,
+  na = ""
+)
+missing_key_env <- "SDTMAI_HETEROGENEOUS_SOURCE_TEST_KEY"
+Sys.unsetenv(missing_key_env)
+expect_error_matching(
+  sdtm_generate_code(
+    mapping = heterogeneous_mapping_file,
+    metadata = heterogeneous_metadata_file,
+    ai_config = sdtm_ai_config(
+      model = "test-model",
+      api_key_env = missing_key_env
+    ),
+    project_key = "project",
+    subject_key = "SubjectId",
+    site_key = "SiteNumber",
+    visit_key = "Folder",
+    record_key = "InstanceRepeatNumber"
+  ),
+  "AI credential environment variable is absent or empty"
 )
 
 project_code_row <- approved_code_row
@@ -578,7 +1028,7 @@ project_code_specification <- sdtmai:::validate_code_mapping(
   project_code_row,
   study_fixture
 )
-expect_error_matching(
+stopifnot(identical(
   sdtmai:::validate_source_identifiers(
     project_code_specification,
     study_fixture,
@@ -587,8 +1037,18 @@ expect_error_matching(
     site_key = "SiteNumber",
     visit_key = "Folder",
     record_key = ""
+  )$project_key,
+  "missing_project_key"
+))
+
+invalid_heterogeneous_mapping <- heterogeneous_mapping
+invalid_heterogeneous_mapping$approved_source_variables[3] <- "MISSING_LAB_RESULT"
+expect_error_matching(
+  sdtmai:::validate_code_mapping(
+    invalid_heterogeneous_mapping,
+    heterogeneous_study
   ),
-  "gl_dm.*configured project key.*missing_project_key"
+  "MISSING_LAB_RESULT.*external_lab.*not present"
 )
 
 code_prompt <- sdtmai:::build_dm_code_prompt(
@@ -603,16 +1063,62 @@ stopifnot(
   grepl("## Approved source identifiers", code_prompt, fixed = TRUE),
   grepl('"subject_key": "SubjectId"', code_prompt, fixed = TRUE),
   grepl('"record_key": ""', code_prompt, fixed = TRUE),
-  grepl("approved subject-level join key", code_prompt, fixed = TRUE),
-  grepl("approved identifiers for project/study, site, visit/folder, and record concepts", code_prompt, fixed = TRUE),
+  grepl("canonical/raw-study key names", code_prompt, fixed = TRUE),
+  grepl("Do not assume that every source dataset contains every configured identifier", code_prompt, fixed = TRUE),
   grepl("Do not infer or substitute different identifier variables", code_prompt, fixed = TRUE),
   grepl("do not join datasets using guessed keys", code_prompt, fixed = TRUE)
+)
+
+heterogeneous_prompt <- sdtmai:::build_sdtm_code_prompt(
+  domain = "LB",
+  final_object = "lb",
+  mapped_rows = heterogeneous_specification$mapped_rows,
+  relevant_metadata = heterogeneous_specification$relevant_metadata,
+  approved_identifiers = heterogeneous_identifiers
+)
+stopifnot(
+  grepl('"columns": ["project", "SubjectId"', heterogeneous_prompt, fixed = TRUE),
+  grepl('"columns": ["STUDYID", "SUBJID", "LAB_RESULT"]', heterogeneous_prompt, fixed = TRUE),
+  grepl('"approved_source_variables": ["STUDYID", "SUBJID", "LAB_RESULT"]', heterogeneous_prompt, fixed = TRUE),
+  grepl("Reconcile SubjectId and SUBJID as approved", heterogeneous_prompt, fixed = TRUE),
+  grepl('"project_key": "project"', heterogeneous_prompt, fixed = TRUE),
+  grepl('"record_key": "InstanceRepeatNumber"', heterogeneous_prompt, fixed = TRUE)
 )
 stopifnot(
   identical(
     code_specification$relevant_metadata[[1]]$reader,
     "haven::read_sas"
   )
+)
+
+ae_code_prompt <- sdtmai:::build_sdtm_code_prompt(
+  domain = ae_code_specification$domain,
+  final_object = ae_code_specification$final_object,
+  mapped_rows = ae_code_specification$mapped_rows,
+  relevant_metadata = ae_code_specification$relevant_metadata,
+  approved_identifiers = approved_identifiers,
+  programmer_instructions = "Keep the transformation readable."
+)
+lb_code_prompt <- sdtmai:::build_sdtm_code_prompt(
+  domain = lb_code_specification$domain,
+  final_object = lb_code_specification$final_object,
+  mapped_rows = lb_code_specification$mapped_rows,
+  relevant_metadata = lb_code_specification$relevant_metadata,
+  approved_identifiers = approved_identifiers
+)
+stopifnot(
+  grepl("constructs the AE SDTM dataset", ae_code_prompt, fixed = TRUE),
+  grepl("FINAL OBJECT CONTRACT", ae_code_prompt, fixed = TRUE),
+  grepl("final SDTM domain object named exactly ae", ae_code_prompt, fixed = TRUE),
+  grepl("ae must be assigned exactly once", ae_code_prompt, fixed = TRUE),
+  grepl('ae <- stop("Clear explanation of the missing approved information.")', ae_code_prompt, fixed = TRUE),
+  grepl("Never return a bare stop() call", ae_code_prompt, fixed = TRUE),
+  grepl("## Approved AE mapping", ae_code_prompt, fixed = TRUE),
+  grepl("Keep the transformation readable.", ae_code_prompt, fixed = TRUE),
+  !grepl("## Approved DM mapping", ae_code_prompt, fixed = TRUE),
+  grepl("constructs the LB SDTM dataset", lb_code_prompt, fixed = TRUE),
+  grepl("final SDTM domain object named exactly lb", lb_code_prompt, fixed = TRUE),
+  grepl('lb <- stop("Clear explanation of the missing approved information.")', lb_code_prompt, fixed = TRUE)
 )
 
 project_code_prompt <- sdtmai:::build_dm_code_prompt(
@@ -692,6 +1198,124 @@ expect_error_matching(
   "must not overwrite preloaded source object.*gl_dm"
 )
 
+valid_ae_transformation <- 'ae <- gl_dm %>% dplyr::transmute(AETERM = SEX_STD)'
+valid_ae_normal_assignment <- 'ae <- data.frame(AETERM = character())'
+valid_ae_safe_refusal <- 'ae <- stop("Missing approved USUBJID convention.")'
+valid_lb_transformation <- 'lb <- gl_dm %>% dplyr::transmute(LBORRES = SEX_STD)'
+valid_lb_safe_refusal <- 'lb <- stop("Missing approved LB identifier convention.")'
+stopifnot(
+  sdtmai:::validate_generated_sdtm_transformation(
+    valid_ae_transformation,
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  sdtmai:::validate_generated_sdtm_transformation(
+    valid_ae_normal_assignment,
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  sdtmai:::validate_generated_sdtm_transformation(
+    valid_ae_safe_refusal,
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  sdtmai:::validate_generated_sdtm_transformation(
+    valid_lb_transformation,
+    domain = "LB",
+    final_object = "lb",
+    relevant_metadata = lb_code_specification$relevant_metadata
+  ),
+  sdtmai:::validate_generated_sdtm_transformation(
+    valid_lb_safe_refusal,
+    domain = "LB",
+    final_object = "lb",
+    relevant_metadata = lb_code_specification$relevant_metadata
+  )
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    'stop("Missing approved USUBJID convention.")',
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "final object named exactly ae.*0 assignment"
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    'dm <- stop("Missing approved USUBJID convention.")',
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "final object named exactly ae"
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    'ae_final <- gl_dm %>% dplyr::transmute(AETERM = SEX_STD)',
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "final object named exactly ae"
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    paste(
+      'gl_dm <- haven::read_sas(file.path(in_dir, "gl_dm.sas7bdat"))',
+      valid_ae_transformation,
+      sep = "\n"
+    ),
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "must not define input paths or read source datasets"
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    paste('gl_dm <- dplyr::filter(gl_dm, TRUE)', valid_ae_transformation, sep = "\n"),
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "must not overwrite preloaded source object.*gl_dm"
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    'ae <- gl_fake %>% dplyr::transmute(AETERM = SEX_STD)',
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "unapproved or undefined source object.*gl_fake"
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    'ae <- dplyr::tibble(AETERM = gl_dm$SEX)',
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "unapproved source variable.*SEX"
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_transformation(
+    paste(
+      'ae <- data.frame()',
+      'ae <- dplyr::mutate(ae, X = 1)',
+      sep = "\n"
+    ),
+    domain = "AE",
+    final_object = "ae",
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "exactly ae once.*2 assignment"
+)
+
 default_source_read_block <- sdtmai:::build_source_read_block(
   "{{APPROVED_HOST_DATA_PATH}}",
   code_specification$relevant_metadata
@@ -709,6 +1333,58 @@ stopifnot(sdtmai:::validate_generated_dm_code(
   study_fixture,
   code_specification$relevant_metadata
 ))
+
+valid_ae_generated_code <- sdtmai:::combine_sdtm_code_blocks(
+  default_source_read_block,
+  valid_ae_transformation
+)
+valid_ae_safe_refusal_code <- sdtmai:::combine_sdtm_code_blocks(
+  default_source_read_block,
+  valid_ae_safe_refusal
+)
+valid_lb_generated_code <- sdtmai:::combine_sdtm_code_blocks(
+  default_source_read_block,
+  valid_lb_transformation
+)
+stopifnot(
+  sdtmai:::validate_generated_sdtm_code(
+    valid_ae_generated_code,
+    domain = "AE",
+    final_object = "ae",
+    study = study_fixture,
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  sdtmai:::validate_generated_sdtm_code(
+    valid_ae_safe_refusal_code,
+    domain = "AE",
+    final_object = "ae",
+    study = study_fixture,
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  sdtmai:::validate_generated_sdtm_code(
+    valid_lb_generated_code,
+    domain = "LB",
+    final_object = "lb",
+    study = study_fixture,
+    relevant_metadata = lb_code_specification$relevant_metadata
+  )
+)
+unapproved_dataset_code <- sub(
+  "gl_dm %>%",
+  "gl_enroll %>%",
+  valid_ae_generated_code,
+  fixed = TRUE
+)
+expect_error_matching(
+  sdtmai:::validate_generated_sdtm_code(
+    unapproved_dataset_code,
+    domain = "AE",
+    final_object = "ae",
+    study = study_fixture,
+    relevant_metadata = ae_code_specification$relevant_metadata
+  ),
+  "unapproved source dataset.*gl_enroll"
+)
 
 historical_path_code <- paste(
   valid_generated_code,

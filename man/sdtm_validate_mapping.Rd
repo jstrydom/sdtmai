@@ -1,6 +1,6 @@
 \name{sdtm_validate_mapping}
 \alias{sdtm_validate_mapping}
-\title{Validate a Programmer-Reviewed DM Mapping}
+\title{Validate a Programmer-Reviewed SDTM Mapping}
 \usage{
 sdtm_validate_mapping(mapping, metadata, sdtmig, output_file = NULL)
 }
@@ -22,6 +22,8 @@ original review table, approved mapping, and unresolved review.
 Reads a mapping review CSV produced by \code{\link[=sdtm_generate_mapping]{sdtm_generate_mapping()}},
 validates the programmer's decisions against the approved source metadata and
 local SDTMIG metadata, and returns a deterministic approved mapping table.
+The review file must contain exactly one domain. The domain is inferred from its
+\code{domain} column and must exist in the supplied SDTMIG workbook.
 }
 \examples{
 \dontrun{

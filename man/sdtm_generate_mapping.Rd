@@ -1,26 +1,26 @@
 \name{sdtm_generate_mapping}
 \alias{sdtm_generate_mapping}
-\title{Generate a Draft DM Mapping for Programmer Review}
+\title{Generate a Draft SDTM Mapping for Programmer Review}
 \usage{
 sdtm_generate_mapping(
   domain = "DM",
   metadata,
   sdtmig,
-  protocol,
-  acrf,
-  treatment_arms,
+  protocol = NULL,
+  acrf = NULL,
+  treatment_arms = NULL,
   ai_config,
   mapping_guidance = NULL,
   output_file = NULL
 )
 }
 \arguments{
-  \item{domain}{SDTM domain. Version 0.1 supports only \code{"DM"}.}
+  \item{domain}{SDTM domain present in the supplied SDTMIG workbook.}
   \item{metadata}{Path to the approved study metadata JSON.}
   \item{sdtmig}{Path to the local SDTMIG workbook.}
-  \item{protocol}{Path to the study protocol DOCX.}
-  \item{acrf}{Path to the annotated CRF DOCX.}
-  \item{treatment_arms}{Path to the Treatment Arms workbook.}
+  \item{protocol}{Optional path to the study protocol DOCX.}
+  \item{acrf}{Optional path to the annotated CRF DOCX.}
+  \item{treatment_arms}{Optional path to the Treatment Arms workbook.}
   \item{ai_config}{Configuration created by \code{\link{sdtm_ai_config}}.}
   \item{mapping_guidance}{Optional path to a reusable mapping-guidance YAML
   file. Guidance is intended only for reusable non-trivial mapping logic;
@@ -32,14 +32,15 @@ A list with class \code{clinical_sdtm_mapping_result} containing the assessment,
 mapped, unresolved, not-applicable, and combined review-table results.
 }
 \description{
-Uses approved source metadata, local DM SDTMIG metadata, protocol and annotated
-CRF evidence, and programmer-reviewable Treatment Arms context to request and
-validate a draft DM mapping from an OpenAI-compatible endpoint.
+Uses approved source metadata, the requested domain's local SDTMIG metadata,
+and optional supplementary study context to request and validate a draft SDTM
+mapping from an OpenAI-compatible endpoint. Supported domains are discovered
+from the supplied SDTMIG workbook.
 }
 \details{
-The generated review table contains empty programmer-review columns. Expected
-future values for \code{programmer_decision} are Accept, Amend, Resolve, and Not
-Applicable; this version does not enforce or process those decisions.
+The generated review table contains empty programmer-review columns. Valid
+values for \code{programmer_decision} are Accept, Amend, Resolve, and Not
+Applicable; \code{\link{sdtm_validate_mapping}} enforces and processes them.
 
 The guidance YAML is intended only for reusable non-trivial mapping guidance.
 Direct mappings should normally be omitted. For example:
@@ -68,5 +69,7 @@ result <- sdtm_generate_mapping(
   ai_config = config,
   output_file = "output/DM_mapping_review.csv"
 )
+ae_result <- sdtm_generate_mapping(domain = "AE", ...)
+lb_result <- sdtm_generate_mapping(domain = "LB", ...)
 }
 }
